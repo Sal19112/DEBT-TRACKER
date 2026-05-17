@@ -165,6 +165,26 @@
   .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--blue); }
   .field select option { background: var(--bg3); }
   .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+  .setup-note { background: var(--amber-bg); border: 1px solid rgba(232,168,56,.3); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 16px; font-size: 12px; color: var(--amber); line-height: 1.6; }
+  .setup-note a { text-decoration: underline; }
+  .setup-note code { font-family: 'DM Mono', monospace; background: rgba(232,168,56,.15); padding: 1px 5px; border-radius: 4px; }
+
+  /* ── Config screen / cards ── */
+  .config-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-top: 16px; max-width: 560px; }
+  .config-card h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: var(--text); }
+  .config-card p { font-size: 13px; color: var(--text2); margin-bottom: 20px; line-height: 1.6; }
+  .config-steps { display: flex; flex-direction: column; gap: 14px; margin-bottom: 22px; }
+  .step { display: flex; gap: 12px; }
+  .step-num { width: 22px; height: 22px; border-radius: 50%; background: var(--blue-bg); color: var(--blue); font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+  .step-text { font-size: 13px; color: var(--text2); line-height: 1.6; }
+  .step-text code { font-family: 'DM Mono', monospace; background: var(--bg4); padding: 1px 6px; border-radius: 4px; color: var(--text); font-size: 12px; }
+  .step-text strong { color: var(--text); }
+
+  /* ── Loading / empty ── */
+  .loading { display: flex; align-items: center; gap: 10px; color: var(--text3); font-size: 13px; padding: 32px 0; }
+  .spinner { width: 16px; height: 16px; border: 2px solid var(--border2); border-top-color: var(--blue); border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .empty { text-align: center; padding: 48px 24px; color: var(--text3); }
   .toast { position: fixed; bottom: 24px; right: 24px; background: var(--bg3); border: 1px solid var(--border2); border-radius: var(--radius-sm); padding: 12px 18px; font-size: 13px; z-index: 300; opacity: 0; transform: translateY(8px); transition: all .2s; pointer-events: none; }
   .toast.show { opacity: 1; transform: translateY(0); }
   .toast.ok { border-color: rgba(76,175,130,.4); color: var(--green); }
@@ -173,6 +193,10 @@
   /* ── View pages ── */
   .view { display: none; }
   .view.active { display: block; }
+
+  /* Apps script banner */
+  .banner { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; margin-bottom: 24px; font-size: 13px; color: var(--text2); display: flex; gap: 12px; align-items: flex-start; }
+  .banner-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
 </style>
 </head>
 <body>
@@ -181,7 +205,7 @@
   <aside class="sidebar">
     <div class="logo">
       <div class="logo-icon">💳</div>
-      Salih's Debt Tracker
+      DebtTracker
     </div>
     <div class="nav-label">Navigation</div>
     <button class="nav-btn active" onclick="showView('dashboard', this)">
@@ -218,6 +242,13 @@
   </aside>
 
   <main class="main">
+
     <div class="view active" id="view-dashboard">
       <div class="page-header">
         <div>
+          <div class="page-title">Dashboard</div>
+          <div class="page-sub">Overview of all your outstanding debts</div>
+        </div>
+        <div class="btn-group">
+          <button class="btn" onclick="syncFromSheet()">🔄 Sync</button>
+          <button class="btn primary" onclick="openAddDebt()">+ Add Debt</button
