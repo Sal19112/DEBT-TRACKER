@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Debt Tracker</title>
+<title>Salih's Debt Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <style>
@@ -165,9 +165,10 @@
   .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--blue); }
   .field select option { background: var(--bg3); }
   .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
-  .setup-note { background: var(--amber-bg); border: 1px solid rgba(232,168,56,.3); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 16px; font-size: 12px; color: var(--amber); line-height: 1.6; }
-  .setup-note a { text-decoration: underline; }
-  .setup-note code { font-family: 'DM Mono', monospace; background: rgba(232,168,56,.15); padding: 1px 5px; border-radius: 4px; }
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--bg3); border: 1px solid var(--border2); border-radius: var(--radius-sm); padding: 12px 18px; font-size: 13px; z-index: 300; opacity: 0; transform: translateY(8px); transition: all .2s; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.ok { border-color: rgba(76,175,130,.4); color: var(--green); }
+  .toast.err { border-color: rgba(224,92,92,.4); color: var(--red); }
 
   /* ── Config screen / cards ── */
   .config-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-top: 16px; max-width: 560px; }
@@ -180,23 +181,9 @@
   .step-text code { font-family: 'DM Mono', monospace; background: var(--bg4); padding: 1px 6px; border-radius: 4px; color: var(--text); font-size: 12px; }
   .step-text strong { color: var(--text); }
 
-  /* ── Loading / empty ── */
-  .loading { display: flex; align-items: center; gap: 10px; color: var(--text3); font-size: 13px; padding: 32px 0; }
-  .spinner { width: 16px; height: 16px; border: 2px solid var(--border2); border-top-color: var(--blue); border-radius: 50%; animation: spin .7s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .empty { text-align: center; padding: 48px 24px; color: var(--text3); }
-  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--bg3); border: 1px solid var(--border2); border-radius: var(--radius-sm); padding: 12px 18px; font-size: 13px; z-index: 300; opacity: 0; transform: translateY(8px); transition: all .2s; pointer-events: none; }
-  .toast.show { opacity: 1; transform: translateY(0); }
-  .toast.ok { border-color: rgba(76,175,130,.4); color: var(--green); }
-  .toast.err { border-color: rgba(224,92,92,.4); color: var(--red); }
-
   /* ── View pages ── */
   .view { display: none; }
   .view.active { display: block; }
-
-  /* Apps script banner */
-  .banner { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; margin-bottom: 24px; font-size: 13px; color: var(--text2); display: flex; gap: 12px; align-items: flex-start; }
-  .banner-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
 </style>
 </head>
 <body>
@@ -247,8 +234,592 @@
       <div class="page-header">
         <div>
           <div class="page-title">Dashboard</div>
-          <div class="page-sub">Overview of all your outstanding debts</div>
+          <div class="page-sub">Overview of all outstanding items</div>
         </div>
         <div class="btn-group">
           <button class="btn" onclick="syncFromSheet()">🔄 Sync</button>
-          <button class="btn primary" onclick="openAddDebt()">+ Add Debt</button
+          <button class="btn primary" onclick="openAddDebt()">+ Add Debt</button>
+        </div>
+      </div>
+      <div class="summary-row" id="summary-row">
+        <div class="metric-card"><div class="metric-label">Total Remaining</div><div class="metric-value red" id="m-remaining">—</div><div class="metric-sub" id="m-active">—</div></div>
+        <div class="metric-card"><div class="metric-label">Total Original</div><div class="metric-value" id="m-total">—</div><div class="metric-sub" id="m-lenders">—</div></div>
+        <div class="metric-card"><div class="metric-label">Total Paid</div><div class="metric-value green" id="m-paid">—</div><div class="metric-sub" id="m-pct">—</div></div>
+        <div class="metric-card"><div class="metric-label">Fully Cleared</div><div class="metric-value green" id="m-cleared">—</div><div class="metric-sub">items settled</div></div>
+      </div>
+      <div class="section-head">Outstanding Allocations — click any row for details</div>
+      <div class="table-wrap" id="dash-table"></div>
+    </div>
+
+    <div class="view" id="view-debts">
+      <div class="page-header">
+        <div><div class="page-title">All Debts</div><div class="page-sub">Complete structural overview registry</div></div>
+        <button class="btn primary" onclick="openAddDebt()">+ Add Debt</button>
+      </div>
+      <div class="table-wrap" id="debts-table"></div>
+    </div>
+
+    <div class="view" id="view-payments">
+      <div class="page-header">
+        <div><div class="page-title">Payment History</div><div class="page-sub">Complete structural trace timeline</div></div>
+        <button class="btn primary" onclick="openAddPayment()">+ Record Payment</button>
+      </div>
+      <div class="table-wrap" id="payments-table"></div>
+    </div>
+
+    <div class="view" id="view-settings">
+      <div class="page-header">
+        <div><div class="page-title">Settings</div><div class="page-sub">Connect your deployment node mapping</div></div>
+      </div>
+      <div class="config-card">
+        <h2>Google Sheets Integration</h2>
+        <p>This dashboard reads from and writes to your Google Sheet. Follow these steps to connect it.</p>
+        <div class="config-steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text"><strong>Deploy a Google Apps Script Web App</strong> — Open your Google Sheet → Extensions → Apps Script → paste the script below → Deploy as Web App (Anyone can access).</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text"><strong>Copy the Web App URL</strong> from the deployment dialog and paste it here.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text"><strong>Sheet format:</strong> Column A = Lender, B = Type, C = Total, D = Remaining (formula). From column F onward each payment column has a date in row 1 and the payment amount in the row.</div>
+          </div>
+        </div>
+        <div class="field" style="margin-bottom:14px">
+          <label>Apps Script Web App URL</label>
+          <input id="cfg-url" placeholder="https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec" />
+        </div>
+        <div class="field" style="margin-bottom:14px">
+          <label>Sheet Name (default: Sheet1)</label>
+          <input id="cfg-sheet" placeholder="Sheet1" />
+        </div>
+        <button class="btn primary" onclick="saveConfig()">Save & Test Connection</button>
+
+        <div class="sidebar-divider" style="margin:24px 0"></div>
+        <h2 style="margin-bottom:12px">Apps Script Code Matrix</h2>
+        <p>Copy and paste this into your Google Apps Script editor:</p>
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;font-family:'DM Mono',monospace;font-size:11px;color:#8b90a0;line-height:1.7;max-height:200px;overflow-y:auto;white-space:pre;" id="script-code"></div>
+        <button class="btn" style="margin-top:10px" onclick="copyScript()">📋 Copy Script</button>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-header">
+    <div>
+      <div class="drawer-name" id="dr-name"></div>
+      <div style="margin-top:6px" id="dr-badge"></div>
+    </div>
+    <button class="drawer-close" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="drawer-stats" id="dr-stats"></div>
+  <div style="margin-bottom:16px">
+    <div class="progress-bar" style="height:8px">
+      <div class="progress-fill" id="dr-progress"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-top:6px">
+      <span id="dr-pct-label"></span>
+      <span id="dr-last-pay"></span>
+    </div>
+  </div>
+  <div class="btn-group" style="margin-bottom:20px">
+    <button class="btn primary" onclick="openPaymentForActive()">💸 Record Settlement</button>
+  </div>
+  <div class="payments-section">
+    <div class="ps-head">
+      <span>Payment Audit Log</span>
+      <span id="dr-pay-count" style="color:var(--text3)"></span>
+    </div>
+    <div id="dr-payments"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-add-debt">
+  <div class="modal">
+    <div class="modal-title">Add New Debt Profile <button class="modal-close" onclick="closeModal('modal-add-debt')">✕</button></div>
+    <div class="form-grid">
+      <div class="field"><label>Lender Name</label><input id="ad-name" placeholder="e.g. CFC Finance" /></div>
+      <div class="field"><label>Classification</label>
+        <select id="ad-type">
+          <option value="COMPANY">Company</option>
+          <option value="FRIEND">Friend</option>
+          <option value="FAMILY">Family</option>
+          <option value="OTHER">Other</option>
+        </select>
+      </div>
+      <div class="field"><label>Total Amount</label><input id="ad-total" type="number" placeholder="0.00" min="0" /></div>
+      <div class="field"><label>Token Currency</label><input id="ad-currency" placeholder="KWD" /></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('modal-add-debt')">Cancel</button>
+      <button class="btn primary" onclick="submitAddDebt()">Add Profile →</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-add-payment">
+  <div class="modal">
+    <div class="modal-title">Record Payment Token <button class="modal-close" onclick="closeModal('modal-add-payment')">✕</button></div>
+    <div class="form-grid">
+      <div class="field" style="grid-column:1/-1"><label>Target Allocation Holder</label>
+        <select id="ap-lender"></select>
+      </div>
+      <div class="field"><label>Liquidity Amount</label><input id="ap-amount" type="number" placeholder="0.00" min="0" /></div>
+      <div class="field"><label>Date Stamp</label><input id="ap-date" type="date" /></div>
+      <div class="field" style="grid-column:1/-1"><label>Log Note / Reference</label><input id="ap-note" placeholder="e.g. Monthly installment" /></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('modal-add-payment')">Cancel</button>
+      <button class="btn primary" onclick="submitPayment()">Execute Log →</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ════════════════════════════════════════════
+//  CONFIG & INTEGRATION RUNTIME VARIABLE SLOTS
+// ════════════════════════════════════════════
+let CFG = { url: '', sheet: 'Sheet1' };
+let DATA = []; 
+let activeDebt = null;
+
+const SCRIPT_CODE = `// ── DebtTracker Apps Script v2 ──
+const SHEET_NAME = 'Sheet1';
+
+function doGet(e) {
+  const p = e.parameter;
+  let result;
+  try {
+    if (p.action === 'getAll')      result = getAll();
+    else if (p.action === 'addDebt')    result = addDebt(p);
+    else if (p.action === 'addPayment') result = addPayment(p);
+    else result = { error: 'Unknown action: ' + p.action };
+  } catch(err) {
+    result = { error: err.toString() };
+  }
+  return ContentService
+    .createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function getAll() {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const vals = sh.getDataRange().getValues();
+  if (vals.length < 2) return { rows: [] };
+  const header = vals[0];
+  const rows = [];
+  for (let r = 1; r < vals.length; r++) {
+    const row = vals[r];
+    if (!row[0]) continue;
+    const payments = [];
+    for (let c = 5; c < header.length; c++) {
+      if (header[c] && row[c]) {
+        const raw = header[c];
+        const dateStr = (raw instanceof Date)
+          ? Utilities.formatDate(raw, Session.getScriptTimeZone(), 'dd/MM/yyyy')
+          : raw.toString();
+        payments.push({ date: dateStr, amount: Number(row[c]) });
+      }
+    }
+    rows.push({
+      row: r + 1,
+      lender: row[0].toString(),
+      type: row[1].toString(),
+      total: Number(row[2]),
+      remaining: Number(row[3]),
+      payments: payments
+    });
+  }
+  return { rows: rows };
+}
+
+function addDebt(p) {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const lastRow = sh.getLastRow() + 1;
+  sh.getRange(lastRow, 1).setValue(p.lender);
+  sh.getRange(lastRow, 2).setValue(p.type);
+  sh.getRange(lastRow, 3).setValue(Number(p.total));
+  sh.getRange(lastRow, 4).setFormula('=C' + lastRow + '-SUM(F' + lastRow + ':ZZZ' + lastRow + ')');
+  return { success: true, row: lastRow };
+}
+
+function addPayment(p) {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const lastCol = Math.max(sh.getLastColumn(), 5);
+  const header = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  let nextCol = lastCol + 1;
+  for (let c = 5; c < header.length; c++) {
+    if (!header[c]) { nextCol = c + 1; break; }
+  }
+  sh.getRange(1, nextCol).setValue(p.date);
+  sh.getRange(Number(p.row), nextCol).setValue(Number(p.amount));
+  return { success: true, col: nextCol };
+}`;
+
+// ════════════════════════════════════════════
+//  SAFE INLINE SETUP ENGINE
+// ════════════════════════════════════════════
+function init() {
+  try { CFG = JSON.parse(localStorage.getItem('dtcfg') || '{}'); } catch(e) {}
+  CFG.url = CFG.url || '';
+  CFG.sheet = CFG.sheet || 'Sheet1';
+
+  if (document.getElementById('cfg-url')) document.getElementById('cfg-url').value = CFG.url;
+  if (document.getElementById('cfg-sheet')) document.getElementById('cfg-sheet').value = CFG.sheet;
+  if (document.getElementById('script-code')) document.getElementById('script-code').textContent = SCRIPT_CODE;
+
+  if (document.getElementById('ap-date')) {
+    document.getElementById('ap-date').value = new Date().toISOString().split('T')[0];
+  }
+
+  const cached = localStorage.getItem('dtdata');
+  if (cached) { try { DATA = JSON.parse(cached); } catch(e){} }
+  renderAll();
+
+  if (CFG.url) syncFromSheet();
+  else setSyncStatus('err', 'No operational URL linked');
+}
+
+// ════════════════════════════════════════════
+//  ASYNCHRONOUS GET PIPELINE PIPES
+// ════════════════════════════════════════════
+async function syncFromSheet() {
+  if (!CFG.url) { setSyncStatus('err', 'No pipeline URL map linked'); return; }
+  setSyncStatus('loading', 'Refreshing allocations...');
+  try {
+    const res = await fetch(`${CFG.url}?action=getAll`);
+    const json = await res.json();
+    if (json.error) throw new Error(json.error);
+    DATA = json.rows || [];
+    localStorage.setItem('dtdata', JSON.stringify(DATA));
+    setSyncStatus('ok', `Synced · ${DATA.length} records active`);
+    renderAll();
+    showToast('Fulfillment data pool compiled successfully', 'ok');
+  } catch(e) {
+    setSyncStatus('err', 'Handshake fault');
+    showToast('Data synchronization network fault: ' + e.message, 'err');
+  }
+}
+
+// ════════════════════════════════════════════
+//  DOM RE-COMPILATION RENDERS
+// ════════════════════════════════════════════
+function renderAll() {
+  renderSummary();
+  renderDashTable();
+  renderDebtsTable();
+  renderPaymentsTable();
+  populateLenderSelect();
+}
+
+function fmt(n) {
+  if (isNaN(n)) return '—';
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function pct(d) {
+  if (!d || !d.total) return 0;
+  return Math.min(100, Math.round((d.total - d.remaining) / d.total * 100));
+}
+
+function avatarClass(type) {
+  const t = (type||'').toLowerCase();
+  if (t === 'company') return 'av-company';
+  if (t === 'friend') return 'av-friend';
+  if (t === 'family') return 'av-family';
+  return 'av-other';
+}
+function badgeClass(type) { return 'badge badge-' + (type||'other').toLowerCase(); }
+
+function renderSummary() {
+  const active = DATA.filter(d => d.remaining > 0);
+  const totalRemaining = DATA.reduce((s,d) => s + d.remaining, 0);
+  const totalOriginal = DATA.reduce((s,d) => s + d.total, 0);
+  const totalPaid = DATA.reduce((s,d) => s + (d.total - d.remaining), 0);
+  const cleared = DATA.filter(d => d.remaining <= 0).length;
+
+  if(document.getElementById('m-remaining')) document.getElementById('m-remaining').textContent = fmt(totalRemaining);
+  if(document.getElementById('m-total')) document.getElementById('m-total').textContent = fmt(totalOriginal);
+  if(document.getElementById('m-paid')) document.getElementById('m-paid').textContent = fmt(totalPaid);
+  if(document.getElementById('m-cleared')) document.getElementById('m-cleared').textContent = cleared;
+  if(document.getElementById('m-active')) document.getElementById('m-active').textContent = active.length + ' active allocations';
+  if(document.getElementById('m-lenders')) document.getElementById('m-lenders').textContent = DATA.length + ' records';
+  if(document.getElementById('m-pct')) document.getElementById('m-pct').textContent = totalOriginal ? Math.round(totalPaid / totalOriginal * 100) + '% overall compilation clearance ratio' : '—';
+}
+
+function debtRowHTML(d, showRow) {
+  const p = pct(d);
+  const done = d.remaining <= 0;
+  const lastPay = d.payments.length ? d.payments[d.payments.length - 1] : null;
+  return `<tr onclick="openDrawer(${showRow})">
+    <td class="cell-name">
+      <div class="avatar ${avatarClass(d.type)}">${(d.lender||'?').substring(0,2).toUpperCase()}</div>
+      ${d.lender}
+    </td>
+    <td><span class="${badgeClass(d.type)}">${d.type||'Other'}</span></td>
+    <td class="cell-mono">${fmt(d.total)}</td>
+    <td class="${done ? 'cell-green' : 'cell-red'}">${done ? 'Cleared' : fmt(d.remaining)}</td>
+    <td>
+      <div class="progress-wrap">
+        <div class="progress-bar"><div class="progress-fill${done?' done':''}" style="width:${p}%"></div></div>
+        <span class="progress-pct">${p}%</span>
+      </div>
+    </td>
+    <td style="color:var(--text3);font-size:12px">${lastPay ? lastPay.date : '—'}</td>
+    <td><button class="btn" style="padding:5px 10px;font-size:12px" onclick="event.stopPropagation();openPaymentFor(${showRow})">Settle</button></td>
+  </tr>`;
+}
+
+function tableHeader() {
+  return `<table><thead><tr>
+    <th>Node Matrix</th><th>Classification</th><th>Principal Base</th><th>Residual Value</th>
+    <th style="min-width:130px">Progress Ratio</th><th>Last Operation</th><th></th>
+  </tr></thead><tbody>`;
+}
+
+function renderDashTable() {
+  const el = document.getElementById('dash-table');
+  if(!el) return;
+  if (!DATA.length) { el.innerHTML = '<div class="empty">Storage matrix stack is unallocated. Register properties inside Settings node.</div>'; return; }
+  const sorted = [...DATA].sort((a,b) => b.remaining - a.remaining);
+  el.innerHTML = tableHeader() + sorted.map((d,i) => debtRowHTML(d, DATA.indexOf(d))).join('') + '</tbody></table>';
+}
+
+function renderDebtsTable() {
+  const el = document.getElementById('debts-table');
+  if(!el) return;
+  if (!DATA.length) { el.innerHTML = '<div class="empty">Empty matrix reference logic mapping.</div>'; return; }
+  el.innerHTML = tableHeader() + DATA.map((d,i) => debtRowHTML(d, i)).join('') + '</tbody></table>';
+}
+
+function renderPaymentsTable() {
+  const el = document.getElementById('payments-table');
+  if(!el) return;
+  const all = [];
+  DATA.forEach(d => {
+    (d.payments||[]).forEach(p => all.push({ ...p, lender: d.lender, type: d.type }));
+  });
+  if (!all.length) { el.innerHTML = '<div class="empty">No historical ledger logs found.</div>'; return; }
+  all.sort((a,b) => new Date(b.date) - new Date(a.date));
+  el.innerHTML = `<table><thead><tr><th>Log Timestamp</th><th>Target Vector Account</th><th>Class</th><th>Transferred Value</th></tr></thead><tbody>` +
+    all.map(p => `<tr>
+      <td style="color:var(--text2);font-size:12px">${p.date}</td>
+      <td class="cell-name"><div class="avatar ${avatarClass(p.type)} " style="width:24px;height:24px;font-size:9px">${p.lender.substring(0,2).toUpperCase()}</div>${p.lender}</td>
+      <td><span class="${badgeClass(p.type)}">${p.type}</span></td>
+      <td class="cell-green" style="font-family:'DM Mono',monospace">${fmt(p.amount)}</td>
+    </tr>`).join('') + '</tbody></table>';
+}
+
+function populateLenderSelect() {
+  const sel = document.getElementById('ap-lender');
+  if(!sel) return;
+  const active = DATA.filter(d => d.remaining > 0);
+  sel.innerHTML = active.length
+    ? active.map((d,i) => `<option value="${DATA.indexOf(d)}">${d.lender} (${fmt(d.remaining)} residual)</option>`).join('')
+    : '<option value="">All allocations fully cleared</option>';
+}
+
+// ════════════════════════════════════════════
+//  SIDE DRAWER INTERACTION HANDLERS
+// ════════════════════════════════════════════
+function openDrawer(idx) {
+  const d = DATA[idx];
+  if (!d) return;
+  activeDebt = idx;
+  document.getElementById('dr-name').textContent = d.lender;
+  document.getElementById('dr-badge').innerHTML = `<span class="${badgeClass(d.type)}">${d.type}</span>`;
+
+  const p = pct(d);
+  const done = d.remaining <= 0;
+  document.getElementById('dr-stats').innerHTML = `
+    <div class="d-stat"><div class="label">Principal Base</div><div class="val">${fmt(d.total)}</div></div>
+    <div class="d-stat"><div class="label">Balance Outstanding</div><div class="val ${done?'green':'red'}">${done?'Cleared':fmt(d.remaining)}</div></div>
+    <div class="d-stat"><div class="label">Total Offset Yield</div><div class="val green">${fmt(d.total-d.remaining)}</div></div>
+  `;
+  document.getElementById('dr-progress').style.width = p + '%';
+  document.getElementById('dr-progress').className = 'progress-fill' + (done?' done':'');
+  document.getElementById('dr-pct-label').textContent = p + '% fulfillment completed';
+  const lastPay = d.payments.length ? d.payments[d.payments.length-1] : null;
+  document.getElementById('dr-last-pay').textContent = lastPay ? 'Last activity: ' + lastPay.date : '';
+  document.getElementById('dr-pay-count').textContent = d.payments.length + ' transformations compiled';
+
+  const paysEl = document.getElementById('dr-payments');
+  if (!d.payments.length) {
+    paysEl.innerHTML = '<div class="empty-pay">No system clearance sequences found.</div>';
+  } else {
+    let running = d.total;
+    paysEl.innerHTML = [...d.payments].reverse().map(p => {
+      running -= p.amount;
+      const balAfter = running;
+      const html = `<div class="payment-row">
+        <div><div class="payment-date">${p.date}</div>${p.note?`<div class="payment-note">${p.note}</div>`:''}</div>
+        <div style="text-align:right">
+          <div class="payment-amt">− ${fmt(p.amount)}</div>
+          <div class="payment-bal">Residual loop balance: ${fmt(Math.max(0,balAfter))}</div>
+        </div>
+      </div>`;
+      running = balAfter;
+      return html;
+    }).join('');
+  }
+
+  document.getElementById('drawer-overlay').classList.add('open');
+  document.getElementById('drawer').classList.add('open');
+}
+
+function closeDrawer() {
+  document.getElementById('drawer-overlay').classList.remove('open');
+  document.getElementById('drawer').classList.remove('open');
+}
+
+function openPaymentForActive() {
+  closeDrawer();
+  if (activeDebt !== null) {
+    document.getElementById('ap-lender').value = activeDebt;
+    openModal('modal-add-payment');
+  }
+}
+
+function openPaymentFor(idx) {
+  document.getElementById('ap-lender').value = idx;
+  openModal('modal-add-payment');
+}
+
+// ════════════════════════════════════════════
+//  MODAL MANAGEMENT TRIGGERS
+// ════════════════════════════════════════════
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function openAddDebt() { openModal('modal-add-debt'); }
+function openAddPayment() { populateLenderSelect(); document.getElementById('ap-date').value = new Date().toISOString().split('T')[0]; openModal('modal-add-payment'); }
+
+// ════════════════════════════════════════════
+//  WRITE PARAMS ASSIGNMENT PIPELINES (CORS PROOF GETS)
+// ════════════════════════════════════════════
+async function submitAddDebt() {
+  const lender = document.getElementById('ad-name').value.trim();
+  const type = document.getElementById('ad-type').value;
+  const total = parseFloat(document.getElementById('ad-total').value);
+  if (!lender || !total || total <= 0) { showToast('Parameters validation fault: Empty inputs', 'err'); return; }
+
+  closeModal('modal-add-debt');
+
+  DATA.push({ lender, type, total, remaining: total, payments: [], row: 0 });
+  renderAll();
+  showToast('Record cached to local loop space', 'ok');
+
+  localStorage.setItem('dtdata', JSON.stringify(DATA));
+  document.getElementById('ad-name').value = '';
+  document.getElementById('ad-total').value = '';
+
+  if (!CFG.url) { showToast('Local cache committed context only. Link script context link mapping.', 'err'); return; }
+  setSyncStatus('loading', 'Writing deployment state onto row segment...');
+  try {
+    const params = new URLSearchParams({ action: 'addDebt', lender, type, total: String(total) });
+    const res = await fetch(`${CFG.url}?${params}`);
+    const json = await res.json();
+    if (json.success) { showToast('✓ Record deployed across Google Sheets ledger', 'ok'); await syncFromSheet(); }
+    else throw new Error(json.error || 'Server processing error status thrown');
+  } catch(e) { setSyncStatus('err', 'Write aborted'); showToast('Synchronization drop: ' + e.message, 'err'); }
+}
+
+async function submitPayment() {
+  const idx = parseInt(document.getElementById('ap-lender').value);
+  const amount = parseFloat(document.getElementById('ap-amount').value);
+  const dateRaw = document.getElementById('ap-date').value;
+  const note = document.getElementById('ap-note').value.trim();
+
+  if (isNaN(idx) || !amount || amount <= 0 || !dateRaw) { showToast('Mapping criteria criteria checklist evaluation error', 'err'); return; }
+  const d = DATA[idx];
+  if (!d) { showToast('Object slot missing reference indexing properties', 'err'); return; }
+  if (amount > d.remaining) { showToast(`Fulfillment limits checklist error: Overflow maximum total balance boundary ${fmt(d.remaining)}`, 'err'); return; }
+
+  const dateObj = new Date(dateRaw);
+  const date = dateObj.toLocaleDateString('en-GB').replace(/\//g, '/');
+
+  closeModal('modal-add-payment');
+
+  d.payments.push({ date, amount, note });
+  d.remaining = Math.max(0, d.remaining - amount);
+  renderAll();
+  showToast('Transaction tracking token recorded locally', 'ok');
+
+  localStorage.setItem('dtdata', JSON.stringify(DATA));
+  document.getElementById('ap-amount').value = '';
+  document.getElementById('ap-note').value = '';
+
+  if (!CFG.url) { showToast('Localized trace execution logged successfully', 'err'); return; }
+  if (!d.row) { showToast('Array node mapping pipeline sequence index mismatch error. Perform full sync refresh.', 'err'); return; }
+
+  setSyncStatus('loading', 'Injecting structural spreadsheet calculation logs...');
+  try {
+    const params = new URLSearchParams({ action: 'addPayment', row: String(d.row), amount: String(amount), date, note: note || '' });
+    const res = await fetch(`${CFG.url}?${params}`);
+    const json = await res.json();
+    if (json.success) { showToast('✓ Target spreadsheet account matrix updated successfully', 'ok'); await syncFromSheet(); }
+    else throw new Error(json.error || 'Pipeline structural processing exception thrown');
+  } catch(e) { setSyncStatus('err', 'Database transaction update dropped completely'); showToast('Allocation payload writing trace drop: ' + e.message, 'err'); }
+}
+
+// ════════════════════════════════════════════
+//  SAFE COMPILER PRESETS & NAVIGATION VIEW PANEL ROUTINES
+// ════════════════════════════════════════════
+async function saveConfig() {
+  CFG.url = document.getElementById('cfg-url').value.trim();
+  CFG.sheet = document.getElementById('cfg-sheet').value.trim() || 'Sheet1';
+  localStorage.setItem('dtcfg', JSON.stringify(CFG));
+  showToast('Configuration linked, diagnostics tests starting...', 'ok');
+  await syncFromSheet();
+}
+
+function copyScript() {
+  navigator.clipboard.writeText(SCRIPT_CODE).then(() => showToast('Apps Script code block copied to user clipboard matrix array.', 'ok'));
+}
+
+function showView(name, el) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  
+  const targetView = document.getElementById('view-' + name);
+  if (targetView) {
+    targetView.classList.add('active');
+  } else {
+    console.error('Could not find runtime mapping panel view node targets: view-' + name);
+  }
+  if (el) el.classList.add('active');
+}
+
+function setSyncStatus(state, text) {
+  const dot = document.getElementById('sync-dot');
+  if(dot) dot.className = 'sync-dot ' + state;
+  const txt = document.getElementById('sync-text');
+  if(txt) txt.textContent = text;
+}
+
+let toastTimer;
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  if(!t) return;
+  t.textContent = msg;
+  t.className = 'toast show ' + (type || '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+});
+
+// Fire runtime configuration mapping diagnostics
+init();
+</script>
+</body>
+</html>
