@@ -414,30 +414,35 @@ let CFG = { url: '', sheet: 'Sheet1' };
 let DATA = []; // array of debt objects
 let activeDebt = null;
 
-const SCRIPT_CODE = `// ── DebtTracker Apps Script ──
-// Paste in Extensions > Apps Script > deploy as Web App (Anyone)
+const SCRIPT_CODE = `// ── DebtTracker Apps Script v2 ──
+// ALL actions use GET parameters (fixes CORS with GitHub Pages)
+// Deploy: Extensions > Apps Script > Deploy > New Deployment
+//   Type: Web App | Execute as: Me | Who has access: Anyone
+// After deploying, copy the Web App URL into Dashboard Settings.
 
 const SHEET_NAME = 'Sheet1';
 
 function doGet(e) {
-  const action = e.parameter.action;
-  if (action === 'getAll') return getAll();
-  return resp({ error: 'Unknown action' });
-}
-
-function doPost(e) {
-  const body = JSON.parse(e.postData.contents);
-  if (body.action === 'addDebt') return addDebt(body);
-  if (body.action === 'addPayment') return addPayment(body);
-  return resp({ error: 'Unknown action' });
+  const p = e.parameter;
+  let result;
+  try {
+    if (p.action === 'getAll')      result = getAll();
+    else if (p.action === 'addDebt')    result = addDebt(p);
+    else if (p.action === 'addPayment') result = addPayment(p);
+    else result = { error: 'Unknown action: ' + p.action };
+  } catch(err) {
+    result = { error: err.toString() };
+  }
+  return ContentService
+    .createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 function getAll() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEET_NAME);
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
   const vals = sh.getDataRange().getValues();
-  if (vals.length < 2) return resp({ rows: [] });
-  const header = vals[0]; // row 1: LENDER, TYPE, TOTAL, REMAINING, [dates...]
+  if (vals.length < 2) return { rows: [] };
+  const header = vals[0];
   const rows = [];
   for (let r = 1; r < vals.length; r++) {
     const row = vals[r];
@@ -445,51 +450,47 @@ function getAll() {
     const payments = [];
     for (let c = 5; c < header.length; c++) {
       if (header[c] && row[c]) {
-        payments.push({ date: header[c].toString(), amount: Number(row[c]) });
+        const raw = header[c];
+        const dateStr = (raw instanceof Date)
+          ? Utilities.formatDate(raw, Session.getScriptTimeZone(), 'dd/MM/yyyy')
+          : raw.toString();
+        payments.push({ date: dateStr, amount: Number(row[c]) });
       }
     }
     rows.push({
       row: r + 1,
-      lender: row[0], type: row[1],
-      total: Number(row[2]), remaining: Number(row[3]),
-      payments
+      lender: row[0].toString(),
+      type: row[1].toString(),
+      total: Number(row[2]),
+      remaining: Number(row[3]),
+      payments: payments
     });
   }
-  return resp({ rows });
+  return { rows: rows };
 }
 
-function addDebt(body) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEET_NAME);
+function addDebt(p) {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
   const lastRow = sh.getLastRow() + 1;
-  sh.getRange(lastRow, 1).setValue(body.lender);
-  sh.getRange(lastRow, 2).setValue(body.type);
-  sh.getRange(lastRow, 3).setValue(body.total);
-  // Set remaining formula: =C{n}-SUM(F{n}:ZZZ{n})
-  sh.getRange(lastRow, 4).setFormula(\`=C\${lastRow}-SUM(F\${lastRow}:ZZZ\${lastRow})\`);
-  return resp({ success: true, row: lastRow });
+  sh.getRange(lastRow, 1).setValue(p.lender);
+  sh.getRange(lastRow, 2).setValue(p.type);
+  sh.getRange(lastRow, 3).setValue(Number(p.total));
+  sh.getRange(lastRow, 4).setFormula('=C' + lastRow + '-SUM(F' + lastRow + ':ZZZ' + lastRow + ')');
+  return { success: true, row: lastRow };
 }
 
-function addPayment(body) {
-  // body: { row, amount, date }
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEET_NAME);
-  const header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
-  // Find next empty column from F (col 6) onward
-  let nextCol = 6;
+function addPayment(p) {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const lastCol = Math.max(sh.getLastColumn(), 5);
+  const header = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  // Find first empty column at F (index 5) or beyond
+  let nextCol = lastCol + 1;
   for (let c = 5; c < header.length; c++) {
-    if (header[c]) nextCol = c + 2; else { nextCol = c + 1; break; }
+    if (!header[c]) { nextCol = c + 1; break; }
   }
-  // Write date in header row and amount in the debt row
-  sh.getRange(1, nextCol).setValue(body.date);
-  sh.getRange(body.row, nextCol).setValue(body.amount);
-  return resp({ success: true });
-}
-
-function resp(obj) {
-  return ContentService
-    .createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
+  sh.getRange(1, nextCol).setValue(p.date);
+  sh.getRange(Number(p.row), nextCol).setValue(Number(p.amount));
+  return { success: true, col: nextCol };
 }`;
 
 // ════════════════════════════════════════════
@@ -741,22 +742,19 @@ async function submitAddDebt() {
   renderAll();
   showToast('Debt added locally', 'ok');
 
-  if (CFG.url) {
-    try {
-      const res = await fetch(CFG.url, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'addDebt', lender, type, total }),
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const json = await res.json();
-      if (json.success) { showToast('Saved to Google Sheets ✓', 'ok'); syncFromSheet(); }
-      else throw new Error(json.error || 'Unknown error');
-    } catch(e) { showToast('Sheet sync failed: ' + e.message, 'err'); }
-  }
-
   localStorage.setItem('dtdata', JSON.stringify(DATA));
   document.getElementById('ad-name').value = '';
   document.getElementById('ad-total').value = '';
+
+  if (!CFG.url) { showToast('Saved locally only — add your Sheet URL in Settings', 'err'); return; }
+  setSyncStatus('loading', 'Writing to Sheet…');
+  try {
+    const params = new URLSearchParams({ action: 'addDebt', lender, type, total: String(total) });
+    const res = await fetch(`${CFG.url}?${params}`);
+    const json = await res.json();
+    if (json.success) { showToast('✓ New debt saved to Google Sheets', 'ok'); await syncFromSheet(); }
+    else throw new Error(json.error || 'Script returned error');
+  } catch(e) { setSyncStatus('err', 'Write failed'); showToast('Sheet write failed: ' + e.message, 'err'); }
 }
 
 // ════════════════════════════════════════════
@@ -785,24 +783,21 @@ async function submitPayment() {
   renderAll();
   showToast('Payment recorded locally', 'ok');
 
-  if (CFG.url && d.row) {
-    try {
-      const res = await fetch(CFG.url, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'addPayment', row: d.row, amount, date, note }),
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const json = await res.json();
-      if (json.success) { showToast('Payment saved to Sheet ✓', 'ok'); syncFromSheet(); }
-      else throw new Error(json.error || 'Unknown error');
-    } catch(e) { showToast('Sheet sync failed: ' + e.message, 'err'); }
-  } else if (!d.row) {
-    showToast('Payment saved locally (no sheet row found — sync first)', 'ok');
-  }
-
   localStorage.setItem('dtdata', JSON.stringify(DATA));
   document.getElementById('ap-amount').value = '';
   document.getElementById('ap-note').value = '';
+
+  if (!CFG.url) { showToast('Saved locally only — add your Sheet URL in Settings', 'err'); return; }
+  if (!d.row) { showToast('Row number missing — please Sync first, then record payment', 'err'); return; }
+
+  setSyncStatus('loading', 'Writing to Sheet…');
+  try {
+    const params = new URLSearchParams({ action: 'addPayment', row: String(d.row), amount: String(amount), date, note: note || '' });
+    const res = await fetch(`${CFG.url}?${params}`);
+    const json = await res.json();
+    if (json.success) { showToast('✓ Payment saved to Google Sheets', 'ok'); await syncFromSheet(); }
+    else throw new Error(json.error || 'Script returned error');
+  } catch(e) { setSyncStatus('err', 'Write failed'); showToast('Sheet write failed: ' + e.message, 'err'); }
 }
 
 // ════════════════════════════════════════════
